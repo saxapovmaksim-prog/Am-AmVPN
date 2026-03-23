@@ -1,25 +1,23 @@
 import asyncio
 import logging
 import aiohttp
+from datetime import datetime
 
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 
-# --- НАСТРОЙКИ ---
 TOKEN = "8277007634:AAFJaW4pws234-gOuC2CsbFXJZ0DLKFTo4Q"
 CRYPTO_TOKEN = "555209:AAvWWWiQt0ERfGAjTGozQDu1HEAZICFi4ZW"
 
-ADMINS = [2032012311]  # ТВОЙ ID
+ADMINS = [2032012311]
 
-# --- БОТ ---
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- ДАННЫЕ ---
 users = {}
-tickets = {}
 waiting_support = set()
+
 
 # --- КНОПКИ ---
 def main_menu(user_id):
@@ -39,11 +37,14 @@ def main_menu(user_id):
 # --- СТАРТ ---
 @dp.message(CommandStart())
 async def start(msg: types.Message):
-    users[msg.from_user.id] = users.get(msg.from_user.id, {"sub": False})
+    if msg.from_user.id not in users:
+        users[msg.from_user.id] = {
+            "sub": False,
+            "reg_date": datetime.now().strftime("%d.%m.%Y")
+        }
 
-    await msg.answer_photo(
-        photo="https://i.imgur.com/2yaf2wb.png",
-        caption="Добро пожаловать в VPN сервис\n\nГлавное меню:",
+    await msg.answer(
+        "Добро пожаловать в Am-Am VPN\n\nГлавное меню:",
         reply_markup=main_menu(msg.from_user.id)
     )
 
@@ -51,20 +52,20 @@ async def start(msg: types.Message):
 # --- CALLBACK ---
 @dp.callback_query()
 async def handler(call: types.CallbackQuery):
-
     user_id = call.from_user.id
 
     # --- ПРОФИЛЬ ---
     if call.data == "profile":
-        sub = users.get(user_id, {}).get("sub", False)
+        user = users[user_id]
 
-        text = "Личный кабинет\n\n"
-        text += "Подписка: АКТИВНА" if sub else "Подписка: НЕТ"
-
-        await call.message.edit_caption(
-            caption=text,
-            reply_markup=main_menu(user_id)
+        text = (
+            "Личный кабинет\n\n"
+            f"ID: {user_id}\n"
+            f"Дата регистрации: {user['reg_date']}\n"
+            f"Подписка: {'АКТИВНА' if user['sub'] else 'НЕТ'}"
         )
+
+        await call.message.edit_text(text, reply_markup=main_menu(user_id))
 
     # --- ТАРИФЫ ---
     elif call.data == "tariffs":
@@ -75,26 +76,18 @@ async def handler(call: types.CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="back")]
         ])
 
-        await call.message.edit_caption("Выберите тариф:", reply_markup=kb)
+        await call.message.edit_text("Выберите тариф:", reply_markup=kb)
 
     # --- ОПЛАТА ---
     elif call.data.startswith("buy_"):
-        prices = {
-            "buy_1": 1.1,
-            "buy_3": 3.3,
-            "buy_12": 6.6
-        }
-
+        prices = {"buy_1": 1.1, "buy_3": 3.3, "buy_12": 6.6}
         amount = prices[call.data]
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://pay.crypt.bot/api/createInvoice",
                 headers={"Crypto-Pay-API-Token": CRYPTO_TOKEN},
-                json={
-                    "asset": "USDT",
-                    "amount": amount
-                }
+                json={"asset": "USDT", "amount": amount}
             ) as resp:
                 data = await resp.json()
 
@@ -106,13 +99,13 @@ async def handler(call: types.CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="tariffs")]
         ])
 
-        await call.message.edit_caption("Оплатите подписку:", reply_markup=kb)
+        await call.message.edit_text("Оплатите подписку:", reply_markup=kb)
 
     elif call.data == "check":
         users[user_id]["sub"] = True
 
-        await call.message.edit_caption(
-            "Оплата подтверждена!\n\nВаш ключ:\nABC-123-XYZ",
+        await call.message.edit_text(
+            "Оплата подтверждена\n\nВаш ключ:\nABC-123-XYZ",
             reply_markup=main_menu(user_id)
         )
 
@@ -124,14 +117,14 @@ async def handler(call: types.CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="back")]
         ])
 
-        await call.message.edit_caption("Скачать VPN:", reply_markup=kb)
+        await call.message.edit_text("Скачать VPN:", reply_markup=kb)
 
     # --- ПОДДЕРЖКА ---
     elif call.data == "support":
         waiting_support.add(user_id)
 
-        await call.message.edit_caption(
-            "Напишите сообщение для поддержки:",
+        await call.message.edit_text(
+            "Напишите сообщение для поддержки\n\n(просто отправь текст)",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data="back")]]
             )
@@ -140,17 +133,24 @@ async def handler(call: types.CallbackQuery):
     # --- АДМИН ---
     elif call.data == "admin" and user_id in ADMINS:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Пользователи", callback_data="users")],
+            [InlineKeyboardButton(text="Статистика", callback_data="stats")],
             [InlineKeyboardButton(text="Назад", callback_data="back")]
         ])
 
-        await call.message.edit_caption("Админ панель", reply_markup=kb)
+        await call.message.edit_text("Админ панель", reply_markup=kb)
 
-    elif call.data == "users" and user_id in ADMINS:
-        text = "Список пользователей:\n\n"
-        text += "\n".join(str(u) for u in users.keys())
+    elif call.data == "stats" and user_id in ADMINS:
+        total = len(users)
+        active = sum(1 for u in users.values() if u["sub"])
 
-        await call.message.edit_caption(
+        text = (
+            "Статистика\n\n"
+            f"Пользователей: {total}\n"
+            f"Активных: {active}\n"
+            f"Без подписки: {total - active}"
+        )
+
+        await call.message.edit_text(
             text,
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data="admin")]]
@@ -159,7 +159,7 @@ async def handler(call: types.CallbackQuery):
 
     # --- НАЗАД ---
     elif call.data == "back":
-        await call.message.edit_caption(
+        await call.message.edit_text(
             "Главное меню:",
             reply_markup=main_menu(user_id)
         )
@@ -167,34 +167,19 @@ async def handler(call: types.CallbackQuery):
     await call.answer()
 
 
-# --- ПОДДЕРЖКА СООБЩЕНИЯ ---
+# --- СООБЩЕНИЯ ---
 @dp.message()
-async def support_handler(msg: types.Message):
+async def messages(msg: types.Message):
     user_id = msg.from_user.id
 
-    # пользователь пишет в поддержку
+    # --- ПОДДЕРЖКА ---
     if user_id in waiting_support:
         for admin in ADMINS:
-            await bot.send_message(
-                admin,
-                f"Обращение от {user_id}:\n{msg.text}"
-            )
+            await bot.send_message(admin, f"Обращение от {user_id}:\n{msg.text}")
 
         await msg.answer("Сообщение отправлено")
         waiting_support.remove(user_id)
         return
-
-    # админ отвечает
-    if user_id in ADMINS:
-        try:
-            target_id = int(msg.text.split()[0])
-            text = " ".join(msg.text.split()[1:])
-
-            await bot.send_message(target_id, f"Ответ поддержки:\n{text}")
-            await msg.answer("Ответ отправлен")
-
-        except:
-            pass
 
 
 # --- ЗАПУСК ---
