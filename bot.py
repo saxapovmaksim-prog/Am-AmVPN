@@ -65,7 +65,8 @@ async def handler(call: types.CallbackQuery):
             f"Подписка: {'АКТИВНА' if user['sub'] else 'НЕТ'}"
         )
 
-        await call.message.edit_text(text, reply_markup=main_menu(user_id))
+        await call.message.delete()
+        await call.message.answer(text, reply_markup=main_menu(user_id))
 
     # --- ТАРИФЫ ---
     elif call.data == "tariffs":
@@ -76,7 +77,8 @@ async def handler(call: types.CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="back")]
         ])
 
-        await call.message.edit_text("Выберите тариф:", reply_markup=kb)
+        await call.message.delete()
+        await call.message.answer("Выберите тариф:", reply_markup=kb)
 
     # --- ОПЛАТА ---
     elif call.data.startswith("buy_"):
@@ -99,12 +101,14 @@ async def handler(call: types.CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="tariffs")]
         ])
 
-        await call.message.edit_text("Оплатите подписку:", reply_markup=kb)
+        await call.message.delete()
+        await call.message.answer("Оплатите подписку:", reply_markup=kb)
 
     elif call.data == "check":
         users[user_id]["sub"] = True
 
-        await call.message.edit_text(
+        await call.message.delete()
+        await call.message.answer(
             "Оплата подтверждена\n\nВаш ключ:\nABC-123-XYZ",
             reply_markup=main_menu(user_id)
         )
@@ -117,14 +121,16 @@ async def handler(call: types.CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="back")]
         ])
 
-        await call.message.edit_text("Скачать VPN:", reply_markup=kb)
+        await call.message.delete()
+        await call.message.answer("Скачать VPN:", reply_markup=kb)
 
     # --- ПОДДЕРЖКА ---
     elif call.data == "support":
         waiting_support.add(user_id)
 
-        await call.message.edit_text(
-            "Напишите сообщение для поддержки\n\n(просто отправь текст)",
+        await call.message.delete()
+        await call.message.answer(
+            "Напишите сообщение для поддержки",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data="back")]]
             )
@@ -137,7 +143,8 @@ async def handler(call: types.CallbackQuery):
             [InlineKeyboardButton(text="Назад", callback_data="back")]
         ])
 
-        await call.message.edit_text("Админ панель", reply_markup=kb)
+        await call.message.delete()
+        await call.message.answer("Админ панель", reply_markup=kb)
 
     elif call.data == "stats" and user_id in ADMINS:
         total = len(users)
@@ -150,7 +157,8 @@ async def handler(call: types.CallbackQuery):
             f"Без подписки: {total - active}"
         )
 
-        await call.message.edit_text(
+        await call.message.delete()
+        await call.message.answer(
             text,
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data="admin")]]
@@ -159,7 +167,8 @@ async def handler(call: types.CallbackQuery):
 
     # --- НАЗАД ---
     elif call.data == "back":
-        await call.message.edit_text(
+        await call.message.delete()
+        await call.message.answer(
             "Главное меню:",
             reply_markup=main_menu(user_id)
         )
@@ -179,7 +188,6 @@ async def messages(msg: types.Message):
 
         await msg.answer("Сообщение отправлено")
         waiting_support.remove(user_id)
-        return
 
 
 # --- ЗАПУСК ---
