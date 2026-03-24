@@ -1,190 +1,210 @@
-import asyncio
-import sqlite3
+import json
+import os
+import hashlib
+import threading
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 
-# ===== НАСТРОЙКИ =====
-BOT_TOKEN = "8277007634:AAFJaW4pws234-gOuC2CsbFXJZ0DLKFTo4Q"
-CRYPTO_TOKEN = "555209:AAvWWWiQt0ERfGAjTGozQDu1HEAZICFi4ZW"
+from flask import Flask, request, jsonify
 
-ADMINS = [2032012311]  # твой ID
+# ================= НАСТРОЙКИ =================
+BOT_TOKEN = "ТВОЙ_НОВЫЙ_ТОКЕН_СЮДА"
+ADMIN_IDS = [123456789]  # вставь свой ID
+DB_FILE = "users.json"
 
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+# ================= БАЗА =================
+def load_db():
+    if not os.path.exists(DB_FILE):
+        return {}
+    with open(DB_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_db(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# ================= API =================
+app_api = Flask(__name__)
+
+@app_api.route("/register", methods=["POST"])
+def register():
+    data = request.json
+    db = load_db()
+
+    user_id = data["id"]
+
+    if user_id in db:
+        return jsonify({"success": False, "message": "ID уже существует"})
+
+    db[user_id] = {
+        "nick": data["nick"],
+        "password": hash_password(data["password"]),
+        "telegram_id": None,
+        "tariff": "free",
+        "expires": None,
+        "created": datetime.now().strftime("%Y-%m-%d")
+    }
+
+    save_db(db)
+    return jsonify({"success": True})
+
+@app_api.route("/login", methods=["POST"])
+def login():
+    data = request.json
+    db = load_db()
+
+    user = db.get(data["id"])
+    if not user:
+        return jsonify({"success": False})
+
+    if user["password"] != hash_password(data["password"]):
+        return jsonify({"success": False})
+
+    return jsonify({"success": True, "user": user})
+
+@app_api.route("/activate", methods=["POST"])
+def activate():
+    data = request.json
+    db = load_db()
+
+    user = db.get(data["id"])
+    if not user:
+        return jsonify({"success": False})
+
+    days = data["days"]
+    expires = datetime.now() + timedelta(days=days)
+
+    user["tariff"] = "premium"
+    user["expires"] = expires.strftime("%Y-%m-%d")
+
+    save_db(db)
+    return jsonify({"success": True})
+
+# ================= БОТ =================
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# ===== БАЗА =====
-db = sqlite3.connect("db.db")
-cursor = db.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    reg_date TEXT,
-    sub_until TEXT
-)
-""")
-
-db.commit()
-
-# ===== МЕНЮ =====
-def main_menu(user_id):
-    buttons = [
-        [InlineKeyboardButton(text="Личный кабинет", callback_data="profile")],
+def main_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Личный кабинет", callback_data="cabinet")],
         [InlineKeyboardButton(text="Выбрать тариф", callback_data="tariffs")],
-        [InlineKeyboardButton(text="Скачать VPN", callback_data="download")],
         [InlineKeyboardButton(text="Поддержка", callback_data="support")]
-    ]
+    ])
 
-    if user_id in ADMINS:
-        buttons.append([InlineKeyboardButton(text="Админ панель", callback_data="admin")])
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-# ===== START =====
-@dp.message(CommandStart())
-async def start(message: types.Message):
-    user_id = message.from_user.id
-
-    cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    if not cursor.fetchone():
-        cursor.execute(
-            "INSERT INTO users VALUES (?, ?, ?)",
-            (user_id, datetime.now().strftime("%Y-%m-%d"), None)
-        )
-        db.commit()
-
-    await message.answer(
-        "Добро пожаловать в VPN сервис\n\nГлавное меню:",
-        reply_markup=main_menu(user_id)
-    )
-
-# ===== ПРОФИЛЬ =====
-@dp.callback_query(F.data == "profile")
-async def profile(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-
-    cursor.execute("SELECT reg_date, sub_until FROM users WHERE user_id=?", (user_id,))
-    data = cursor.fetchone()
-
-    reg = data[0]
-    sub = data[1] if data[1] else "Нет"
-
-    text = f"""
-<b>Личный кабинет</b>
-
-ID: <code>{user_id}</code>
-Дата регистрации: {reg}
-Подписка до: {sub}
-"""
-
-    await callback.message.edit_text(text, reply_markup=main_menu(user_id))
-
-# ===== ТАРИФЫ =====
-@dp.callback_query(F.data == "tariffs")
-async def tariffs(callback: types.CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1 месяц - 99₽ (1.1$)", callback_data="buy_1")],
-        [InlineKeyboardButton(text="3 месяца - 299₽ (3.3$)", callback_data="buy_3")],
-        [InlineKeyboardButton(text="1 год - 600₽ (6.6$)", callback_data="buy_12")],
+def tariffs_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1 месяц — 99₽ (~1$)", callback_data="buy_30")],
+        [InlineKeyboardButton(text="3 месяца — 299₽ (~3$)", callback_data="buy_90")],
+        [InlineKeyboardButton(text="1 год — 600₽ (~6$)", callback_data="buy_365")],
         [InlineKeyboardButton(text="Назад", callback_data="back")]
     ])
 
-    await callback.message.edit_text("Выберите тариф:", reply_markup=kb)
+@dp.message(F.text == "/start")
+async def start(msg: types.Message):
+    await msg.answer("Добро пожаловать в VPN", reply_markup=main_menu())
 
-# ===== ОПЛАТА =====
-@dp.callback_query(F.data.startswith("buy_"))
-async def buy(callback: types.CallbackQuery):
-    months = int(callback.data.split("_")[1])
+@dp.callback_query(F.data == "back")
+async def back(call: types.CallbackQuery):
+    await call.message.edit_text("Главное меню", reply_markup=main_menu())
 
-    prices = {1: 1.1, 3: 3.3, 12: 6.6}
-    price = prices[months]
+@dp.callback_query(F.data == "cabinet")
+async def cabinet(call: types.CallbackQuery):
+    db = load_db()
 
-    url = f"https://t.me/CryptoBot?start=invoice_{price}"
+    user = None
+    for uid, u in db.items():
+        if u["telegram_id"] == call.from_user.id:
+            user = (uid, u)
+            break
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Оплатить", url=url)],
-        [InlineKeyboardButton(text="Проверить оплату", callback_data=f"check_{months}")],
-        [InlineKeyboardButton(text="Назад", callback_data="tariffs")]
-    ])
-
-    await callback.message.edit_text(
-        f"Оплата тарифа на {months} мес.\nСумма: {price}$",
-        reply_markup=kb
-    )
-
-# ===== ПРОВЕРКА (заглушка) =====
-@dp.callback_query(F.data.startswith("check_"))
-async def check(callback: types.CallbackQuery):
-    await callback.answer("Оплата не найдена", show_alert=True)
-
-# ===== СКАЧАТЬ VPN =====
-@dp.callback_query(F.data == "download")
-async def download(callback: types.CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Для ПК", url="https://google.com")],
-        [InlineKeyboardButton(text="Для Android", url="https://google.com")],
-        [InlineKeyboardButton(text="Назад", callback_data="back")]
-    ])
-
-    await callback.message.edit_text("Скачать VPN:", reply_markup=kb)
-
-# ===== ПОДДЕРЖКА =====
-user_support = {}
-
-@dp.callback_query(F.data == "support")
-async def support(callback: types.CallbackQuery):
-    user_support[callback.from_user.id] = True
-    await callback.message.edit_text("Напишите сообщение в поддержку:")
-
-@dp.message()
-async def handle_messages(message: types.Message):
-    user_id = message.from_user.id
-
-    if user_id in user_support:
-        for admin in ADMINS:
-            await bot.send_message(admin, f"Обращение от {user_id}:\n{message.text}")
-        await message.answer("Сообщение отправлено в поддержку")
-        user_support.pop(user_id)
-
-# ===== АДМИНКА =====
-@dp.callback_query(F.data == "admin")
-async def admin(callback: types.CallbackQuery):
-    if callback.from_user.id not in ADMINS:
+    if not user:
+        await call.message.edit_text("Вы не привязали аккаунт")
         return
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Список пользователей", callback_data="users")],
-        [InlineKeyboardButton(text="Назад", callback_data="back")]
-    ])
+    uid, u = user
 
-    await callback.message.edit_text("Админ панель:", reply_markup=kb)
-
-@dp.callback_query(F.data == "users")
-async def users(callback: types.CallbackQuery):
-    cursor.execute("SELECT user_id FROM users")
-    users = cursor.fetchall()
-
-    text = "Список пользователей:\n\n"
-    for u in users:
-        text += f"{u[0]}\n"
-
-    await callback.message.edit_text(text)
-
-# ===== НАЗАД =====
-@dp.callback_query(F.data == "back")
-async def back(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        "Главное меню:",
-        reply_markup=main_menu(callback.from_user.id)
+    text = (
+        f"ID: {uid}\n"
+        f"Ник: {u['nick']}\n"
+        f"Тариф: {u['tariff']}\n"
+        f"До: {u['expires']}\n"
+        f"Регистрация: {u['created']}"
     )
 
-# ===== ЗАПУСК =====
-async def main():
-    await dp.start_polling(bot)
+    await call.message.edit_text(text, reply_markup=main_menu())
+
+@dp.callback_query(F.data == "tariffs")
+async def tariffs(call: types.CallbackQuery):
+    await call.message.edit_text("Выберите тариф", reply_markup=tariffs_menu())
+
+@dp.callback_query(F.data.startswith("buy_"))
+async def buy(call: types.CallbackQuery):
+    days = int(call.data.split("_")[1])
+
+    await call.message.edit_text(
+        "Отправьте ID аккаунта для активации тарифа"
+    )
+
+    dp.message.register(wait_id, F.text)
+    dp["buy_days"] = days
+
+async def wait_id(msg: types.Message):
+    db = load_db()
+    user = db.get(msg.text)
+
+    if not user:
+        await msg.answer("ID не найден")
+        return
+
+    user["telegram_id"] = msg.from_user.id
+    save_db(db)
+
+    await msg.answer("Отправьте скрин оплаты")
+
+    dp.message.register(wait_check)
+
+async def wait_check(msg: types.Message):
+    for admin in ADMIN_IDS:
+        await bot.send_photo(
+            admin,
+            msg.photo[-1].file_id,
+            caption=f"Проверить оплату от {msg.from_user.id}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Подтвердить", callback_data=f"ok_{msg.from_user.id}")]
+            ])
+        )
+
+    await msg.answer("Ожидайте подтверждения")
+
+@dp.callback_query(F.data.startswith("ok_"))
+async def confirm(call: types.CallbackQuery):
+    user_id = int(call.data.split("_")[1])
+    db = load_db()
+
+    for uid, u in db.items():
+        if u["telegram_id"] == user_id:
+            expires = datetime.now() + timedelta(days=30)
+            u["tariff"] = "premium"
+            u["expires"] = expires.strftime("%Y-%m-%d")
+            save_db(db)
+
+            await bot.send_message(user_id, "Оплата подтверждена! Тариф активирован")
+            break
+
+# ================= ЗАПУСК =================
+def run_bot():
+    import asyncio
+    asyncio.run(dp.start_polling(bot))
+
+def run_api():
+    app_api.run(port=8000)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    threading.Thread(target=run_bot).start()
+    run_api()
