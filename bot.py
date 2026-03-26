@@ -3,11 +3,12 @@ import time
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
 from yoomoney import Quickpay, Client
 
 # === ВАШИ ДАННЫЕ ===
-BOT_TOKEN = "8637803848:AAHTK2zzOOtSUV2tsWJLckGYuNWV6tRCJRE" # Смените потом!
-YOOMONEY_TOKEN = "ВАШ_ACCESS_TOKEN_ИЗ_ШАГА_1"
+BOT_TOKEN = "ВАШ_ТОКЕН_БОТА" # Обязательно смените тот, что засветили на скриншоте!
+YOOMONEY_TOKEN = "ВАШ_ACCESS_TOKEN_ИЗ_ПЕРВОГО_ШАГА"
 RECEIVER_WALLET = "41001XXXXXXXXX" # Номер вашего кошелька ЮMoney (начинается на 4100)
 
 PRICE = 99 # Цена тарифа в рублях
@@ -38,19 +39,19 @@ async def process_buy(callback_query: types.CallbackQuery):
         receiver=RECEIVER_WALLET,
         quickpay_form="shop",
         targets="Оплата AmAm VPN",
-        paymentType="SB", # SB = СБП (Быстрые платежи), AC = Банковская карта
+        paymentType="SB", # SB = СБП (Быстрые платежи)
         sum=PRICE,
         label=payment_label
     )
     
-    # Кнопка проверки оплаты
+    # Кнопка оплаты и проверки
     check_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Оплатить 99 ₽", url=quickpay.base_url)],
         [InlineKeyboardButton(text="🔄 Я оплатил! (Проверить)", callback_data=f"check_{payment_label}")]
     ])
     
     await callback_query.message.answer(
-        "Перейдите по ссылке ниже для оплаты.\nПосле оплаты нажмите кнопку 'Я оплатил!'",
+        "Перейдите по ссылке ниже для оплаты.\nПосле успешного перевода нажмите кнопку 'Я оплатил!'",
         reply_markup=check_keyboard
     )
     await callback_query.answer()
@@ -60,24 +61,33 @@ async def process_buy(callback_query: types.CallbackQuery):
 async def check_payment(callback_query: types.CallbackQuery):
     label = callback_query.data.split('_', 1)[1]
     
-    # Проверяем историю ЮMoney
+    # Идем в ЮMoney и ищем операцию по уникальной метке
     client = Client(YOOMONEY_TOKEN)
     history = client.operation_history(label=label)
     
     if history.operations:
-        # Если операция найдена — платеж прошел!
-        await callback_query.message.edit_text(
-            "✅ Оплата прошла успешно!\n\n"
-            "🎉 Ваш ключ доступа:\n`AMAM-PRO-99X-TEST`\n\n"
-            "Скачайте наш APK ниже и вставьте этот ключ в разделе Профиль."
-        )
-        # Здесь бот мог бы отправить сам .apk файл:
-        # await bot.send_document(callback_query.from_user.id, document="URL_ИЛИ_ID_ВАШЕГО_APK")
+        # ПЛАТЕЖ НАЙДЕН!
+        try:
+            await callback_query.message.edit_text(
+                "✅ Оплата прошла успешно!\n\n"
+                "🎉 Ваш ключ доступа:\n`AMAM-PRO-99X-TEST`\n\n"
+                "Скачайте наш APK ниже и вставьте этот ключ в разделе Профиль."
+            )
+        except TelegramBadRequest:
+            # Игнорируем ошибку (пользователь жмет кнопку, когда текст уже изменен)
+            pass
+            
+        await callback_query.answer() # Убираем "часики" загрузки
     else:
-        await callback_query.answer("Оплата еще не найдена. Подождите пару минут и попробуйте снова.", show_alert=True)
+        # ПЛАТЕЖ НЕ НАЙДЕН
+        # Показываем всплывающее окошко (Alert), текст сообщения не трогаем
+        await callback_query.answer(
+            "⏳ Оплата еще не поступила.\nПодождите пару минут и нажмите снова.", 
+            show_alert=True
+        )
 
 async def main():
-    print("Бот AmAm VPN запущен!")
+    print("Бот AmAm VPN успешно запущен!")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
