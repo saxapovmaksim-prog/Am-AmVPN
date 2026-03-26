@@ -1,93 +1,168 @@
 import asyncio
 import time
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
 from yoomoney import Quickpay, Client
 
 # === ВАШИ ДАННЫЕ ===
-BOT_TOKEN = "8637803848:AAHTK2zzOOtSUV2tsWJLckGYuNWV6tRCJRE" # Обязательно смените тот, что засветили на скриншоте!
-YOOMONEY_TOKEN = "ВАШ_ACCESS_TOKEN_ИЗ_ПЕРВОГО_ШАГА"
-RECEIVER_WALLET = "41001XXXXXXXXX" # Номер вашего кошелька ЮMoney (начинается на 4100)
-
-PRICE = 99 # Цена тарифа в рублях
+BOT_TOKEN = "ТОКЕН_ОТ_ВАШЕГО_VPN_БОТА" # Вставьте токен от AmAm VPN!
+YOOMONEY_TOKEN = "ВАШ_ТОКЕН_ЮМАНИ"
+RECEIVER_WALLET = "41001XXXXXXXXX"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Обработка команды /start
+# Временная "база данных" в памяти (для теста)
+# В реальности тут будет подключение к SQLite или PostgreSQL
+users_db = {}
+
+# --- КЛАВИАТУРЫ ---
+# Нижнее меню (Reply)
+main_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="🛒 Тарифы")],
+        [KeyboardButton(text="🚀 Скачать приложение (APK)")],
+        [KeyboardButton(text="💬 Поддержка")]
+    ],
+    resize_keyboard=True
+)
+
+# Меню тарифов (Inline)
+tariffs_menu = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="Сладкий (99 ₽ / мес)", callback_data="buy_99")],
+        [InlineKeyboardButton(text="Сахарная кома PRO (299 ₽ / мес)", callback_data="buy_299")]
+    ]
+)
+
+# --- ОБРАБОТЧИКИ СООБЩЕНИЙ ---
+
 @dp.message(Command("start"))
-async def send_welcome(message: types.Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🍬 Купить тариф Сладкий (99 ₽)", callback_data="buy_standard")]
-    ])
+async def cmd_start(message: types.Message):
+    user_id = message.from_user.id
+    # Регистрируем пользователя, если его нет
+    if user_id not in users_db:
+        users_db[user_id] = {
+            "tariff": "Голодный (Бесплатный)",
+            "key": "Нет ключа. Нажмите 'Тарифы', чтобы купить."
+        }
+        
     await message.answer(
-        f"Привет, {message.from_user.first_name}! Я бот AmAm VPN 🍬\n\n"
-        "Жми кнопку ниже, чтобы купить ключ и съесть все блокировки!",
-        reply_markup=keyboard
+        f"🍬 Добро пожаловать в **AmAm VPN**, {message.from_user.first_name}!\n\n"
+        "Мы съедаем все блокировки. Выберите нужное действие в меню ниже 👇",
+        reply_markup=main_menu,
+        parse_mode="Markdown"
     )
 
-# Нажатие на кнопку "Купить"
-@dp.callback_query(lambda c: c.data == 'buy_standard')
-async def process_buy(callback_query: types.CallbackQuery):
-    # Создаем уникальную метку для платежа (ID пользователя + время)
-    payment_label = f"{callback_query.from_user.id}_{int(time.time())}"
+# Обработка кнопок нижнего меню
+@dp.message(F.text == "👤 Мой профиль")
+async def show_profile(message: types.Message):
+    user_id = message.from_user.id
+    user_data = users_db.get(user_id, {"tariff": "Голодный (Бесплатный)", "key": "Нет ключа"})
     
-    # Генерируем ссылку на оплату
+    text = (
+        "👤 **Ваш профиль:**\n\n"
+        f"🔑 **ID:** `{user_id}`\n"
+        f"💎 **Тариф:** {user_data['tariff']}\n\n"
+        f"🔐 **Ваш ключ доступа:**\n`{user_data['key']}`\n\n"
+        "*(Нажмите на ключ, чтобы скопировать)*"
+    )
+    await message.answer(text, parse_mode="Markdown")
+
+@dp.message(F.text == "🛒 Тарифы")
+async def show_tariffs(message: types.Message):
+    await message.answer(
+        "⚡️ **Выберите тариф:**\n\n"
+        "**1. Сладкий (99 ₽)**\n"
+        "• Отличная скорость\n• До 5 устройств\n\n"
+        "**2. Сахарная кома PRO (299 ₽)**\n"
+        "• Максимальная скорость\n• До 10 устройств",
+        reply_markup=tariffs_menu,
+        parse_mode="Markdown"
+    )
+
+@dp.message(F.text == "🚀 Скачать приложение (APK)")
+async def send_app(message: types.Message):
+    await message.answer(
+        "🤖 **Приложение AmAm VPN для Android:**\n\n"
+        "*(Здесь бот будет отправлять .apk файл, когда мы его соберем)*\n\n"
+        "Инструкция:\n1. Установите приложение.\n2. Перейдите в раздел 'Профиль'.\n3. Вставьте ваш ключ доступа.",
+        parse_mode="Markdown"
+    )
+
+@dp.message(F.text == "💬 Поддержка")
+async def send_support(message: types.Message):
+    await message.answer("Если у вас возникли проблемы, напишите нашему менеджеру: @ВашЮзернейм")
+
+# --- ЛОГИКА ОПЛАТЫ ---
+
+@dp.callback_query(F.data.startswith('buy_'))
+async def process_buy(callback_query: types.CallbackQuery):
+    price = int(callback_query.data.split('_')[1])
+    tariff_name = "Сладкий" if price == 99 else "Сахарная кома PRO"
+    
+    payment_label = f"{callback_query.from_user.id}_{price}_{int(time.time())}"
+    
     quickpay = Quickpay(
         receiver=RECEIVER_WALLET,
         quickpay_form="shop",
-        targets="Оплата AmAm VPN",
-        paymentType="SB", # SB = СБП (Быстрые платежи)
-        sum=PRICE,
+        targets=f"Оплата тарифа {tariff_name}",
+        paymentType="SB", 
+        sum=price,
         label=payment_label
     )
     
-    # Кнопка оплаты и проверки
     check_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Оплатить 99 ₽", url=quickpay.base_url)],
+        [InlineKeyboardButton(text=f"Оплатить {price} ₽", url=quickpay.base_url)],
         [InlineKeyboardButton(text="🔄 Я оплатил! (Проверить)", callback_data=f"check_{payment_label}")]
     ])
     
-    await callback_query.message.answer(
-        "Перейдите по ссылке ниже для оплаты.\nПосле успешного перевода нажмите кнопку 'Я оплатил!'",
-        reply_markup=check_keyboard
+    await callback_query.message.edit_text(
+        f"🛒 Оплата тарифа **{tariff_name}** ({price} ₽)\n\n"
+        "Перейдите по ссылке ниже для оплаты. После перевода нажмите кнопку 'Я оплатил!'",
+        reply_markup=check_keyboard,
+        parse_mode="Markdown"
     )
-    await callback_query.answer()
 
-# Проверка оплаты
-@dp.callback_query(lambda c: c.data.startswith('check_'))
+@dp.callback_query(F.data.startswith('check_'))
 async def check_payment(callback_query: types.CallbackQuery):
-    label = callback_query.data.split('_', 1)[1]
+    # Разбираем метку: check_ID_PRICE_TIME
+    data_parts = callback_query.data.split('_')
+    label = f"{data_parts[1]}_{data_parts[2]}_{data_parts[3]}"
+    user_id = int(data_parts[1])
+    price = int(data_parts[2])
     
-    # Идем в ЮMoney и ищем операцию по уникальной метке
     client = Client(YOOMONEY_TOKEN)
     history = client.operation_history(label=label)
     
     if history.operations:
-        # ПЛАТЕЖ НАЙДЕН!
+        # Успешная оплата! Обновляем базу данных пользователя
+        tariff_name = "Сладкий 🍬" if price == 99 else "Сахарная кома PRO 👑"
+        new_key = f"AMAM-{price}X-{'PRO' if price == 299 else 'STD'}-88A2"
+        
+        users_db[user_id] = {
+            "tariff": tariff_name,
+            "key": new_key
+        }
+        
         try:
             await callback_query.message.edit_text(
-                "✅ Оплата прошла успешно!\n\n"
-                "🎉 Ваш ключ доступа:\n`AMAM-PRO-99X-TEST`\n\n"
-                "Скачайте наш APK ниже и вставьте этот ключ в разделе Профиль."
+                "✅ **Оплата прошла успешно!**\n\n"
+                f"Ваш тариф изменен на: **{tariff_name}**\n\n"
+                f"🔐 Ваш новый ключ доступа:\n`{new_key}`\n\n"
+                "*(Нажмите на ключ, чтобы скопировать)*",
+                parse_mode="Markdown"
             )
         except TelegramBadRequest:
-            # Игнорируем ошибку (пользователь жмет кнопку, когда текст уже изменен)
             pass
-            
-        await callback_query.answer() # Убираем "часики" загрузки
+        await callback_query.answer()
     else:
-        # ПЛАТЕЖ НЕ НАЙДЕН
-        # Показываем всплывающее окошко (Alert), текст сообщения не трогаем
-        await callback_query.answer(
-            "⏳ Оплата еще не поступила.\nПодождите пару минут и нажмите снова.", 
-            show_alert=True
-        )
+        await callback_query.answer("⏳ Оплата еще не поступила.\nПодождите минуту и нажмите снова.", show_alert=True)
 
 async def main():
-    print("Бот AmAm VPN успешно запущен!")
+    print("VPN Бот запущен! Жду сообщений...")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
