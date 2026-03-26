@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 from yoomoney import Quickpay, Client
 
 # === ВАШИ ДАННЫЕ ===
-BOT_TOKEN = "ВАШ_ТОКЕН_БОТА" # Обязательно смените тот, что засветили на скриншоте!
+BOT_TOKEN = "8637803848:AAHTK2zzOOtSUV2tsWJLckGYuNWV6tRCJRE" # Обязательно смените тот, что засветили на скриншоте!
 YOOMONEY_TOKEN = "ВАШ_ACCESS_TOKEN_ИЗ_ПЕРВОГО_ШАГА"
 RECEIVER_WALLET = "41001XXXXXXXXX" # Номер вашего кошелька ЮMoney (начинается на 4100)
 
