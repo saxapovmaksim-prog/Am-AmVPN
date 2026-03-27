@@ -17,12 +17,12 @@ from aiogram.exceptions import TelegramBadRequest
 from yoomoney import Quickpay, Client
 
 # ==========================================
-# ВАШИ НАСТРОЙКИ (ЗАПОЛНИТЕ 4 СТРОЧКИ!)
+# ВАШИ НАСТРОЙКИ (ВСТАВЬТЕ 3 ТОКЕНА)
 # ==========================================
 BOT_TOKEN = "8637803848:AAHTK2zzOOtSUV2tsWJLckGYuNWV6tRCJRE" 
-YOOMONEY_TOKEN = "В4100119421936909.5708C060A9413FE2D03525B0F3C2FFD2780FF9A7B979527712BB947C16BEE28B2728CF9A6B66BC8FF64D030553F5C8BF8310097F3919ED9EF1B53F022E427E95DFC03B407B1F6A7EC8F778E0864DAA392E7D0F9C5DD43C7B1A4EB78EC63D61A8FA21ED6ECA5689326A9FD99951C97F10D998D5F2AA6099DC16E2B87142300ACC"
-RECEIVER_WALLET = "41001XXXXXXXXX" # Номер кошелька ЮMoney
-ADMIN_ID = 2032012311 # ВАШ ТЕЛЕГРАМ ID (узнать в @getmyid_bot)
+YOOMONEY_TOKEN = "4100119421936909.5708C060A9413FE2D03525B0F3C2FFD2780FF9A7B979527712BB947C16BEE28B2728CF9A6B66BC8FF64D030553F5C8BF8310097F3919ED9EF1B53F022E427E95DFC03B407B1F6A7EC8F778E0864DAA392E7D0F9C5DD43C7B1A4EB78EC63D61A8FA21ED6ECA5689326A9FD99951C97F10D998D5F2AA6099DC16E2B87142300ACC"
+RECEIVER_WALLET = "41001XXXXXXXXX" 
+ADMIN_ID = 2032012311 # ВАШ ID (уже вписан!)
 # ==========================================
 
 bot = Bot(token=BOT_TOKEN)
@@ -54,16 +54,20 @@ def update_user(user_id, tariff, key, days):
     conn.commit()
     conn.close()
 
-# Инициализируем БД при старте
 init_db()
 
-# --- МЕНЮ БОТА ---
-main_menu = ReplyKeyboardMarkup(
-    keyboard=[
+# --- ДИНАМИЧЕСКОЕ МЕНЮ (С КНОПКОЙ АДМИНА) ---
+def get_main_menu(user_id):
+    # Стандартные кнопки для всех
+    kb = [
         [KeyboardButton(text="👤 Мой профиль"), KeyboardButton(text="🛒 Тарифы")],
         [KeyboardButton(text="🚀 Скачать VPN"), KeyboardButton(text="💬 Поддержка")]
-    ], resize_keyboard=True
-)
+    ]
+    # Если это ВЫ, добавляем секретную кнопку
+    if user_id == ADMIN_ID:
+        kb.append([KeyboardButton(text="👑 Админ-панель")])
+    
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 tariffs_menu = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🍬 Сладкий (99 ₽ / 30 дней)", callback_data="buy_99")],
@@ -76,17 +80,31 @@ async def cmd_start(message: types.Message):
     user_id = message.from_user.id
     if not get_user(user_id):
         update_user(user_id, "Бесплатный", "Нет ключа. Купите тариф.", 0)
-    await message.answer(f"Привет, {message.from_user.first_name}!\nДобро пожаловать в **AmAm VPN** 🍬\n\nВыберите действие ниже 👇", reply_markup=main_menu)
+    
+    # Бот выдает меню в зависимости от того, админ это или нет
+    await message.answer(
+        f"Привет, {message.from_user.first_name}!\nДобро пожаловать в **AmAm VPN** 🍬\n\nВыберите действие ниже 👇", 
+        reply_markup=get_main_menu(user_id)
+    )
 
-@dp.message(Command("admin"))
-async def cmd_admin(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
+# --- КНОПКИ НИЖНЕГО МЕНЮ ---
+@dp.message(F.text == "👑 Админ-панель")
+async def admin_panel_button(message: types.Message):
+    if message.from_user.id != ADMIN_ID: 
+        return # Если кто-то чужой как-то нажмет кнопку, бот проигнорирует
+    
     conn = sqlite3.connect("database.db")
     count = conn.cursor().execute("SELECT COUNT(*) FROM users").fetchone()[0]
     conn.close()
-    await message.answer(f"👑 **АДМИН-ПАНЕЛЬ**\n\n👥 Всего пользователей в БД: {count}\n\n*(Позже мы добавим сюда рассылку и выдачу бесплатных ключей)*", parse_mode="Markdown")
+    
+    await message.answer(
+        f"👑 **СЕКРЕТНАЯ АДМИН-ПАНЕЛЬ**\n\n"
+        f"👥 Всего пользователей в базе: **{count}**\n"
+        f"💰 Оплаты работают штатно.\n\n"
+        f"*(Скоро мы добавим сюда рассылку и выдачу тестовых ключей)*", 
+        parse_mode="Markdown"
+    )
 
-# --- КНОПКИ НИЖНЕГО МЕНЮ ---
 @dp.message(F.text == "👤 Мой профиль")
 async def show_profile(message: types.Message):
     user = get_user(message.from_user.id)
@@ -130,8 +148,8 @@ async def check_payment(callback_query: types.CallbackQuery):
     
     if history.operations:
         tariff_name = "Сладкий 🍬" if int(price) == 99 else "PRO 👑"
-        new_key = f"AMAM-VPN-{price}-{int(time.time())}" # Пока фейковый ключ
-        update_user(int(user_id), tariff_name, new_key, 30) # Выдаем на 30 дней
+        new_key = f"AMAM-VPN-{price}-{int(time.time())}"
+        update_user(int(user_id), tariff_name, new_key, 30)
         
         try:
             await callback_query.message.edit_text(f"✅ Успешно!\nТариф: {tariff_name}\nКлюч:\n`{new_key}`", parse_mode="Markdown")
